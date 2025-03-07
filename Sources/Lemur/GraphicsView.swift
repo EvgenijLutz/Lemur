@@ -160,7 +160,7 @@ class UpdateLink {
     private var metalDisplayLink: CAMetalDisplayLink? = nil
     
     
-    var usingCADisplayLink: Bool = true {
+    var usingCADisplayLink: Bool = false {
         didSet {
             updateLinkSettings()
         }
@@ -481,7 +481,7 @@ extension GraphicsView {
         //metalLayer.autoresizingMask = CAAutoresizingMask(arrayLiteral: [.layerHeightSizable, .layerWidthSizable])
         //metalLayer.needsDisplayOnBoundsChange = true
         
-#if true
+#if false
         updateLink.usingCADisplayLink = true
         metalLayer.presentsWithTransaction = true
         metalLayer.allowsNextDrawableTimeout = false

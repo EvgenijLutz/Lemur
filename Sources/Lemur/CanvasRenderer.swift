@@ -89,6 +89,7 @@ class RenderData {
         
         
         // Mesh rendering state
+        //let library = try device.makeDefaultLibrary(bundle: Bundle.module)
         guard let library = device.makeDefaultLibrary() else {
             throw RendererError.failedToLoadMetalLibrary(name: "default")
         }
@@ -226,6 +227,8 @@ class RenderData {
 }
 
 
+// MARK: - Render engine
+
 @MainActor
 public class RenderEngine {
     public let device: MTLDevice
@@ -324,6 +327,49 @@ public class RenderEngine {
         }
 
         return value
+    }
+    
+    
+    public func createTexture(from data: borrowing Data, width: Int, height: Int) async throws -> MTLTexture {
+        let descriptor = MTLTextureDescriptor()
+        descriptor.pixelFormat = .bgra8Unorm
+        descriptor.width = width
+        descriptor.height = height
+        descriptor.storageMode = .shared
+        descriptor.usage = .shaderRead
+    
+        guard let texture = device.makeTexture(descriptor: descriptor) else {
+            print("Could not create a texture")
+            throw LemurError.cannotCreateTexture
+        }
+    
+        try data.withUnsafeBytes { pointer in
+            guard let baseAddress = pointer.baseAddress else {
+                throw LemurError.couldNotGetTextureContentsToCopy
+            }
+            texture.replace(region: MTLRegionMake2D(0, 0, width, height),
+                            mipmapLevel: 0,
+                            withBytes: baseAddress,
+                            bytesPerRow: width * 4)
+        }
+    
+        return texture
+    }
+    
+    
+    public func createBuffer(from data: borrowing Data) async throws -> MTLBuffer {
+        guard let buffer = device.makeBuffer(length: data.count, options: .storageModeShared) else {
+            throw LemurError.cannotCreateBuffer
+        }
+        
+        try data.withUnsafeBytes { pointer in
+            guard let baseAddress = pointer.baseAddress else {
+                throw LemurError.couldNotGetTextureContentsToCopy
+            }
+            buffer.contents().copyMemory(from: baseAddress, byteCount: data.count)
+        }
+        
+        return buffer
     }
 }
 
