@@ -391,16 +391,18 @@ public class GraphicsView: AppleView {
             return
         }
         
-//        CATransaction.begin()
-//        CATransaction.setValue(kCFBooleanTrue, forKey: kCATransactionDisableActions)
-        
-        let scaleFactor = window?.scaleFactor ?? 1
-        metalLayer.contentsScale = scaleFactor
-        metalLayer.drawableSize = .init(width: size.width * scaleFactor, height: size.height * scaleFactor)
-        
-//        CATransaction.commit()
-        
-        //setNeedsDisplay(bounds)
+        autoreleasepool {
+            //CATransaction.begin()
+            //CATransaction.setValue(kCFBooleanTrue, forKey: kCATransactionDisableActions)
+            
+            let scaleFactor = window?.scaleFactor ?? 1
+            metalLayer.contentsScale = scaleFactor
+            metalLayer.drawableSize = .init(width: size.width * scaleFactor, height: size.height * scaleFactor)
+            
+            //CATransaction.commit()
+            
+            //setNeedsDisplay(bounds)
+        }
     }
     
     
@@ -527,6 +529,18 @@ extension GraphicsView {
 }
 
 
+// MARK: macOS
+
+#if os(macOS)
+extension GraphicsView {
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateDrawableSize(for: frame.size)
+    }
+}
+#endif
+
+
 // MARK: Rendering
 
 extension GraphicsView {
@@ -553,7 +567,9 @@ extension GraphicsView {
         }
         
         withOrWithoutTransaction {
-            renderer?.render(to: drawable, timestamp: timestamp, presentationTimestamp: presentationTimestamp, targetTimestamp: targetTimestamp, forceWait: forceWait)
+            autoreleasepool {
+                renderer?.render(to: drawable, timestamp: timestamp, presentationTimestamp: presentationTimestamp, targetTimestamp: targetTimestamp, forceWait: forceWait)
+            }
         }
     }
 }

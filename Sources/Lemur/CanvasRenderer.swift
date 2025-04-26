@@ -358,6 +358,8 @@ public class RenderEngine {
     
     
     public func createBuffer(from data: borrowing Data) async throws -> MTLBuffer {
+        // TODO: These two code blocks produce the same result, but whyyyyy does the code in the first block crash in the RELEASE mode
+#if false
         guard let buffer = device.makeBuffer(length: data.count, options: .storageModeShared) else {
             throw LemurError.cannotCreateBuffer
         }
@@ -366,8 +368,25 @@ public class RenderEngine {
             guard let baseAddress = pointer.baseAddress else {
                 throw LemurError.couldNotGetTextureContentsToCopy
             }
+            // FIXME: Crashes here on RELEASE. Why does it not crash if the print statement is uncommented?
+            //print("Contents: \(buffer.length), base address: \(baseAddress), count: \(data.count), pointer: \(pointer)")
+            // This will also work
+            //_ = "Contents: \(buffer.length), base address: \(baseAddress), count: \(data.count), pointer: \(pointer)"
             buffer.contents().copyMemory(from: baseAddress, byteCount: data.count)
         }
+#else
+        let buffer = try data.withUnsafeBytes { pointer in
+            guard let baseAddress = pointer.baseAddress else {
+                throw LemurError.couldNotGetTextureContentsToCopy
+            }
+            
+            return device.makeBuffer(bytes: baseAddress, length: pointer.count, options: .storageModeShared)
+        }
+        
+        guard let buffer else {
+            throw LemurError.cannotCreateBuffer
+        }
+#endif
         
         return buffer
     }
