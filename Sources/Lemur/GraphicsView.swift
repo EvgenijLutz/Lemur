@@ -447,6 +447,13 @@ public class GraphicsView: AppleView {
 }
 
 
+public extension GraphicsView {
+    var currentDrawableSize: CGSize {
+        layer.presentation()?.bounds.size ?? bounds.size
+    }
+}
+
+
 extension GraphicsView {
     private func initGraphicsView() {
         log("🌇 Create graphics view")
@@ -563,7 +570,7 @@ extension GraphicsView {
     func render(to drawable: CAMetalDrawable, timestamp: CFTimeInterval, presentationTimestamp: CFTimeInterval?, targetTimestamp: CFTimeInterval?, forceWait: Bool) {
         // Notify delegate about update
         if let delegate {
-            delegate.canvasRendererUpdate(frame: frame.size, timestamp: timestamp, presentationTimestamp: presentationTimestamp)
+            delegate.canvasRendererUpdate(frame: currentDrawableSize, timestamp: timestamp, presentationTimestamp: presentationTimestamp)
         }
         
         withOrWithoutTransaction {
@@ -584,7 +591,7 @@ extension GraphicsView {
         
         // Notify delegate about update
         if let delegate {
-            delegate.canvasRendererUpdate(frame: frame.size, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp)
+            delegate.canvasRendererUpdate(frame: currentDrawableSize, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp)
         }
         
         withOrWithoutTransaction {
