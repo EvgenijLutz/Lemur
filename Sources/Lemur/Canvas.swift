@@ -117,7 +117,7 @@ public class LMMeshInstance {
 }
 
 
-public class Canvas {
+public class LMCanvas {
     public var opaqueMeshes: [LMMeshInstance] = []
     public var shadedMeshes: [LMMeshInstance] = []
     public var weightedMeshes: [LMMeshInstance] = []

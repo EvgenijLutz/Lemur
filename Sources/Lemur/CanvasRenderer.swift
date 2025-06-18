@@ -6,7 +6,7 @@
 //
 
 import QuartzCore
-import Metal
+@preconcurrency import Metal
 import OSLog
 import LemurC
 
@@ -89,10 +89,10 @@ class RenderData {
         
         
         // Mesh rendering state
-        //let library = try device.makeDefaultLibrary(bundle: Bundle.module)
-        guard let library = device.makeDefaultLibrary() else {
-            throw RendererError.failedToLoadMetalLibrary(name: "default")
-        }
+        let library = try device.makeDefaultLibrary(bundle: Bundle.module)
+        //guard let library = device.makeDefaultLibrary() else {
+        //    throw RendererError.failedToLoadMetalLibrary(name: "default")
+        //}
         
         // Opaque meshes
         do {
@@ -245,6 +245,8 @@ public class RenderEngine {
     
     
     init() throws {
+        let startTime = CACurrentMediaTime()
+        
         guard let metalDevice = MTLCreateSystemDefaultDevice() else {
             throw RendererError.noMetalDeviceAvailable
         }
@@ -305,6 +307,9 @@ public class RenderEngine {
             
             nearestNeighborSamplerState = state
         }
+        
+        let elapsed = CACurrentMediaTime() - startTime
+        logger.log("Render engine initialized in \(elapsed) seconds")
     }
     
     
@@ -508,7 +513,7 @@ public class CanvasRenderer {
     private let renderPassDescriptor = MTLRenderPassDescriptor()
     
 
-    public var canvas: Canvas? = nil
+    public var canvas: LMCanvas? = nil
     
     
     // TODO: Make part of sharedCounter?

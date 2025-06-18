@@ -119,7 +119,7 @@ class CustomWindowDelegate: NSObject, NSWindowDelegate {
 #endif
 
 
-fileprivate let logger = Logger(subsystem: "Graphics", category: "Graphics view")
+let logger = Logger(subsystem: "Graphics", category: "Graphics view")
 
 internal func log(_ message: Any?) {
     guard let message else {
@@ -145,121 +145,6 @@ internal extension AppleWindow {
 }
 
 
-// MARK: Update link
-
-@MainActor
-class UpdateLink {
-    weak var targetView: GraphicsView? {
-        didSet {
-            updateLinkSettings()
-        }
-    }
-    
-    private var caDisplayLink: CADisplayLink? = nil
-    
-    private var metalDisplayLink: CAMetalDisplayLink? = nil
-    
-    
-    var usingCADisplayLink: Bool = false {
-        didSet {
-            updateLinkSettings()
-        }
-    }
-    
-    private var _paused: Bool = false
-    var paused: Bool {
-        get {
-            _paused
-        }
-        
-        set {
-            _paused = newValue
-            caDisplayLink?.isPaused = newValue
-            metalDisplayLink?.isPaused = newValue
-        }
-    }
-    
-    
-    @MainActor
-    private class DisplayLinkDelegate: NSObject {
-        weak var updateLink: UpdateLink?
-        
-        @objc func invoke() {
-            guard let caDisplayLink = updateLink?.caDisplayLink else {
-                return
-            }
-            
-            guard let targetView = updateLink?.targetView else {
-                return
-            }
-            
-            guard let drawable = targetView.metalLayer?.nextDrawable() else {
-                return
-            }
-            
-            targetView.withOrWithoutTransaction {
-                targetView.render(to: drawable, timestamp: caDisplayLink.timestamp, presentationTimestamp: nil, targetTimestamp: caDisplayLink.targetTimestamp, forceWait: false)
-            }
-        }
-    }
-    private let wrapper = DisplayLinkDelegate()
-    
-    init() {
-        wrapper.updateLink = self
-    }
-    
-    func updateIfEmpty() {
-        if caDisplayLink == nil && metalDisplayLink == nil {
-            updateLinkSettings()
-        }
-    }
-    
-    func updateLinkSettings() {
-        logger.log("update link settings")
-        
-        // Reset display link
-        caDisplayLink?.isPaused = true
-        caDisplayLink?.remove(from: .main, forMode: .common)
-        //caDisplayLink?.remove(from: .main, forMode: RunLoop.current.currentMode)
-        caDisplayLink = nil
-        
-        metalDisplayLink?.isPaused = true
-        metalDisplayLink?.remove(from: .main, forMode: .common)
-        //metalDisplayLink?.remove(from: .main, forMode: .eventTracking)
-        metalDisplayLink = nil
-        
-        
-        // Setup display link and start it
-        if usingCADisplayLink {
-#if os(macOS)
-            caDisplayLink = targetView?.displayLink(target: wrapper, selector: #selector(DisplayLinkDelegate.invoke))
-#else
-            caDisplayLink = targetView?.window?.screen.displayLink(withTarget: wrapper, selector: #selector(DisplayLinkDelegate.invoke))
-#endif
-            caDisplayLink?.add(to: .main, forMode: .common)
-            caDisplayLink?.isPaused = _paused
-        }
-        else if let metalLayer = targetView?.metalLayer {
-            let link = CAMetalDisplayLink(metalLayer: metalLayer)
-            link.delegate = self
-            link.add(to: RunLoop.main, forMode: .common)
-            //link.add(to: RunLoop.main, forMode: .eventTracking)
-            link.isPaused = _paused
-            metalDisplayLink = link
-        }
-    }
-}
-
-
-extension UpdateLink: CAMetalDisplayLinkDelegate {
-    nonisolated func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
-        MainActor.assumeIsolated {
-            targetView?.metalDisplayLink(link, needsUpdate: update)
-        }
-    }
-}
-
-
 // MARK: Graphics view
 
 @MainActor
@@ -272,7 +157,7 @@ public class GraphicsView: AppleView {
     /// Update link
     ///
     /// - Warning: Don't control the ``updateLink.paused-property`` state. Instead, use the ``paused-property`` property of this class.
-    private let updateLink = UpdateLink()
+    private let updateLink = createUpdateLink()
     
     /// Controls ``updateLink.paused-property``'s state
     public var paused: Bool {
@@ -287,7 +172,7 @@ public class GraphicsView: AppleView {
     }
     
     
-    fileprivate var metalLayer: CAMetalLayer? {
+    internal var metalLayer: CAMetalLayer? {
         return layer as? CAMetalLayer
     }
     
@@ -295,7 +180,7 @@ public class GraphicsView: AppleView {
     
     let renderer = try? CanvasRenderer()
     
-    public var canvas: Canvas? {
+    public var canvas: LMCanvas? {
         get {
             renderer?.canvas
         }
@@ -386,6 +271,32 @@ public class GraphicsView: AppleView {
     }
     
     
+    internal func adjustDrawableSize() {
+        guard let metalLayer else {
+            return
+        }
+        
+        let scaleFactor = window?.scaleFactor ?? 1
+        let layerSize = layer.presentation()?.bounds.size ?? bounds.size
+        let targetDrawableSize = CGSize(width: layerSize.width * scaleFactor, height: layerSize.height * scaleFactor)
+        
+        if metalLayer.drawableSize != targetDrawableSize || metalLayer.contentsScale != scaleFactor {
+            autoreleasepool {
+                //CATransaction.begin()
+                //CATransaction.setValue(kCFBooleanTrue, forKey: kCATransactionDisableActions)
+                
+                print("Update drawable size from \(metalLayer.drawableSize)~\(metalLayer.contentsScale) to \(targetDrawableSize)~\(scaleFactor)")
+                metalLayer.contentsScale = scaleFactor
+                metalLayer.drawableSize = targetDrawableSize
+                
+                //CATransaction.commit()
+                
+                //setNeedsDisplay(bounds)
+            }
+        }
+    }
+    
+    
     private func updateDrawableSize(for size: CGSize) {
         guard let metalLayer else {
             return
@@ -425,7 +336,7 @@ public class GraphicsView: AppleView {
     //}
 
     
-    override public var frame: AppleRect {
+    /*override public var frame: AppleRect {
         get {
             return super.frame
         }
@@ -443,13 +354,17 @@ public class GraphicsView: AppleView {
                 }
             }
         }
-    }
+    }*/
 }
 
 
 public extension GraphicsView {
     var currentDrawableSize: CGSize {
+#if os(iOS)
         layer.presentation()?.bounds.size ?? bounds.size
+#elseif os(macOS)
+        layer?.presentation()?.bounds.size ?? bounds.size
+#endif
     }
 }
 
@@ -484,18 +399,22 @@ extension GraphicsView {
         
         // Setup metal layer
         metalLayer.device = renderer.device
+        #if targetEnvironment(simulator)
+        metalLayer.pixelFormat = .bgra8Unorm
+        #else
         metalLayer.pixelFormat = .bgra10_xr
         //metalLayer.pixelFormat = .bgra10_xr_srgb
+        #endif
         
         //metalLayer.autoresizingMask = CAAutoresizingMask(arrayLiteral: [.layerHeightSizable, .layerWidthSizable])
         //metalLayer.needsDisplayOnBoundsChange = true
         
 #if false
-        updateLink.usingCADisplayLink = true
+        //updateLink.usingCADisplayLink = true
         metalLayer.presentsWithTransaction = true
         metalLayer.allowsNextDrawableTimeout = false
 #else
-        updateLink.usingCADisplayLink = false
+        //updateLink.usingCADisplayLink = false
         metalLayer.presentsWithTransaction = false
         metalLayer.allowsNextDrawableTimeout = false
 #endif
@@ -518,7 +437,7 @@ extension GraphicsView {
     
     
     
-    fileprivate func withOrWithoutTransaction(ignoringLayerOption: Bool = false, action: () -> Void) {
+    internal func withOrWithoutTransaction(ignoringLayerOption: Bool = false, action: () -> Void) {
 #if true
         if metalLayer?.presentsWithTransaction == true || ignoringLayerOption {
             CATransaction.begin()
@@ -542,7 +461,8 @@ extension GraphicsView {
 extension GraphicsView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        updateDrawableSize(for: frame.size)
+        adjustDrawableSize()
+        //updateDrawableSize(for: frame.size)
     }
 }
 #endif
@@ -556,7 +476,7 @@ extension GraphicsView {
             return
         }
         
-        if updateLink.usingCADisplayLink, let drawable = metalLayer.nextDrawable() {
+        if updateLink.isCoreAnimationUpdateLink, let drawable = metalLayer.nextDrawable() {
 //            let drawableSize = metalLayer.drawableSize
 //            let width = drawableSize.width / metalLayer.contentsScale
 //            let height = drawableSize.height / metalLayer.contentsScale
@@ -582,32 +502,36 @@ extension GraphicsView {
 }
 
 
-// MARK: Draw with Metal display link data
-
-extension GraphicsView {
-    fileprivate func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
-        let targetTimestamp = update.targetTimestamp
-        let presentationTimestamp = update.targetPresentationTimestamp
-        
-        // Notify delegate about update
-        if let delegate {
-            delegate.canvasRendererUpdate(frame: currentDrawableSize, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp)
-        }
-        
-        withOrWithoutTransaction {
-            renderer?.render(to: update.drawable, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp, targetTimestamp: nil, forceWait: false)
-        }
-    }
-}
+// MARK : Draw with Metal display link data
+//
+//@available(iOS 17.0, macOS 14.0, tvOS 17.0, *)
+//extension GraphicsView {
+//    /// Called from MetalUpdateLink
+//    func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+//        let targetTimestamp = update.targetTimestamp
+//        let presentationTimestamp = update.targetPresentationTimestamp
+//        
+//        // Notify delegate about update
+//        if let delegate {
+//            delegate.canvasRendererUpdate(frame: currentDrawableSize, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp)
+//        }
+//        
+//        withOrWithoutTransaction {
+//            renderer?.render(to: update.drawable, timestamp: targetTimestamp, presentationTimestamp: presentationTimestamp, targetTimestamp: nil, forceWait: false)
+//        }
+//    }
+//}
 
 
 // MARK: - Layer delegate
 
 #if os(macOS)
 extension GraphicsView: CALayerDelegate {
-    public func display(_ layer: CALayer) {
-        withOrWithoutTransaction {
-            render()
+    nonisolated public func display(_ layer: CALayer) {
+        MainActor.assumeIsolated {
+            withOrWithoutTransaction {
+                render()
+            }
         }
     }
 }
@@ -734,11 +658,11 @@ public class GraphicsViewController: AppleViewController {
 #if os(macOS)
 
 public struct SwiftUIGraphicsView: NSViewControllerRepresentable {
-    public var canvas: Canvas?
+    public var canvas: LMCanvas?
     public weak var delegate: GraphicsViewDelegate?
     public var inputManager: InputManager?
     
-    public init(canvas: Canvas?, delegate: GraphicsViewDelegate? = nil, inputManager: InputManager? = nil) {
+    public init(canvas: LMCanvas?, delegate: GraphicsViewDelegate? = nil, inputManager: InputManager? = nil) {
         self.canvas = canvas
         self.delegate = delegate
         self.inputManager = inputManager
@@ -765,11 +689,11 @@ public struct SwiftUIGraphicsView: NSViewControllerRepresentable {
 #elseif os(iOS)
 
 public struct SwiftUIGraphicsView: UIViewControllerRepresentable {
-    public var canvas: Canvas?
+    public var canvas: LMCanvas?
     public weak var delegate: GraphicsViewDelegate?
     public var inputManager: InputManager?
     
-    public init(canvas: Canvas?, delegate: GraphicsViewDelegate? = nil, inputManager: InputManager? = nil) {
+    public init(canvas: LMCanvas?, delegate: GraphicsViewDelegate? = nil, inputManager: InputManager? = nil) {
         self.canvas = canvas
         self.delegate = delegate
         self.inputManager = inputManager

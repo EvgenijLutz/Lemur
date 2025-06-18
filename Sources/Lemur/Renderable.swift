@@ -13,6 +13,6 @@ import QuartzCore
 /// Generalized interface for a renderable object
 public protocol Renderable: AnyObject {
     var device: MTLDevice { get }
-    var canvas: Canvas? { get set }
+    var canvas: LMCanvas? { get set }
     func render(to drawable: CAMetalDrawable, timestamp: CFTimeInterval, presentationTimestamp: CFTimeInterval?, targetTimestamp: CFTimeInterval?, forceWait: Bool)
 }
